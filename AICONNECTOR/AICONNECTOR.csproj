@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="LangChain" Version="0.17.0"/>
+    <PackageReference Include="LangChain.Core" Version="0.17.0"/>
+    <PackageReference Include="LangChain.Providers.Ollama" Version="0.17.0"/>
+    <PackageReference Include="Qdrant.Client" Version="1.15.1"/>
+  </ItemGroup>
+</Project>
