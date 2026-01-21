@@ -144,3 +144,151 @@ GitHub: [https://github.com/cancmrt](https://github.com/cancmrt)
 ## 📄 Lisans
 
 Bu proje **MIT Lisansı** ile lisanslanmıştır.
+
+
+# 📊 AIFORBI (AI for Business Intelligence)
+
+AIFORBI is an **AI-powered Business Intelligence (BI) reporting and data analysis tool** that connects directly to your **MSSQL database**, automatically scans table relationships, constraints, and table semantics, and is enhanced with a **Vector Database (Qdrant)** and **Ollama Embedding** architecture.
+
+With AIFORBI, you don’t waste time writing SQL queries.
+You simply describe **what you need in natural language**, and the system finds, analyzes, and visualizes the data on your behalf.
+
+---
+
+## 🔥 Key Features
+
+* **Intelligent Schema Analysis**
+
+  * Scans MSSQL metadata
+  * Automatically learns table relationships (Foreign Keys), data types, and column semantics
+
+* **Vector-Based Schema Memory (RAG)**
+
+  * Database metadata is vectorized using **Ollama (nomic-embed-text)**
+  * Stored in **Qdrant**
+  * Enables the AI to identify the most relevant tables and relationships within milliseconds
+
+* **Natural Language Querying**
+
+  * Example:
+
+    > *"Show last year’s sales as a region-based pie chart"*
+
+* **Dynamic SQL Generation**
+
+  * Fully compliant with the MSSQL dialect
+  * Generates optimized and secure SQL queries
+
+* **Automatic Visualization & Reporting**
+
+  * Automatically selects the most appropriate visualization type based on the dataset
+    (Bar, Line, Pie, etc.)
+
+---
+
+## 🛠 Technologies Used
+
+| Component           | Technology                   | Notes                                 |
+| ------------------- | ---------------------------- | ------------------------------------- |
+| Database            | Microsoft SQL Server (MSSQL) | Currently only MSSQL is supported     |
+| Vector Database     | Qdrant                       | Used for RAG and semantic search      |
+| Local AI (LLM)      | Ollama (qwen2.5-coder:7b)    | SQL generation and logical reasoning  |
+| Embedding Model     | Ollama (nomic-embed-text)    | Used to vectorize schema metadata     |
+| Cloud AI (Optional) | Google Gemini API            | Alternative high-performance analysis |
+
+---
+
+## 🏗 How It Works
+
+1. **Scanning**
+
+   * The MSSQL schema is scanned (tables, columns, relationships)
+
+2. **Embedding & Indexing**
+
+   * Metadata is embedded
+   * Indexed into the Qdrant vector database
+
+3. **Retrieval**
+
+   * Semantic search is performed based on the user’s question
+   * Relevant tables and columns are identified
+
+4. **Generation**
+
+   * Selected schema context is sent to the AI model
+   * Accurate and optimized SQL queries are generated
+
+5. **Execution & Visualization**
+
+   * SQL queries are executed on MSSQL
+   * Results are transformed into dynamic visualizations
+
+---
+
+## ⚙️ Installation
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/cancmrt/AIFORBI.git
+cd AIFORBI
+```
+
+### 2. Pull Ollama Models
+
+```bash
+ollama pull qwen2.5-coder:7b
+ollama pull nomic-embed-text
+```
+
+### 3. Set Up MSSQL Database and Qdrant
+
+### 4. Configuration (.appsettings.json)
+
+Enter the required configuration values in the `appsettings.json` file.
+
+---
+
+## 💡 Example Queries
+
+* `"List the top 5 most expensive products from the Products table"`
+* `"Create a pie chart of total revenue for sales representatives in the West region"`
+* `"Show stock changes over the last 6 months as a line chart"`
+
+---
+
+## 🤝 Contributing
+
+1. **Fork** this repository
+2. Create a new branch
+
+   ```bash
+   git checkout -b feature/new-feature
+   ```
+3. Commit your changes
+
+   ```bash
+   git commit -m "Add new feature"
+   ```
+4. Push your branch
+
+   ```bash
+   git push origin feature/new-feature
+   ```
+5. Open a **Pull Request**
+
+---
+
+## 👤 Developer
+
+**Antigravity**
+**Can Cömert**
+GitHub: [https://github.com/cancmrt](https://github.com/cancmrt)
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License**.
+
