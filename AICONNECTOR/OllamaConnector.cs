@@ -4,7 +4,7 @@ using Ollama;
 
 namespace AICONNECTOR.Connectors;
 
-public class OllamaConnector
+public class OllamaConnector : IConnect
 {
     private static readonly JsonSerializerOptions _json = new()
     {

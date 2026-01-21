@@ -447,6 +447,46 @@ public class MssqlConnector
                 DATABASENAME NVARCHAR(200) NULL
             );
         END
+
+        IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AIFORBI_CHAT_HISTORY' AND xtype='U')
+        BEGIN
+            CREATE TABLE AIFORBI_CHAT_HISTORY
+            (
+                ID INT IDENTITY(1,1) PRIMARY KEY,
+                SESSIONID NVARCHAR(100) NULL,
+                ROLE NVARCHAR(50) NULL,
+                CONTENT NVARCHAR(MAX) NULL,
+                CREATEDAT DATETIME DEFAULT GETDATE(),
+                ISHTML BIT DEFAULT 0
+            );
+        END
+
+        IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AIFORBI_USERS' AND xtype='U')
+        BEGIN
+            CREATE TABLE AIFORBI_USERS
+            (
+                ID INT IDENTITY(1,1) PRIMARY KEY,
+                EMAIL NVARCHAR(200) NOT NULL UNIQUE,
+                PASSWORD_HASH NVARCHAR(200) NOT NULL,
+                DISPLAY_NAME NVARCHAR(100) NULL,
+                CREATED_AT DATETIME DEFAULT GETDATE()
+            );
+            INSERT INTO AIFORBI_USERS (EMAIL, PASSWORD_HASH, DISPLAY_NAME)
+            VALUES ('admin@admin.com', '123456', 'Admin');
+        END
+
+        IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AIFORBI_CHAT_SESSIONS' AND xtype='U')
+        BEGIN
+            CREATE TABLE AIFORBI_CHAT_SESSIONS
+            (
+                ID INT IDENTITY(1,1) PRIMARY KEY,
+                SESSION_ID NVARCHAR(100) NOT NULL UNIQUE,
+                USER_ID INT NOT NULL,
+                TITLE NVARCHAR(200) NULL,
+                CREATED_AT DATETIME DEFAULT GETDATE(),
+                FOREIGN KEY (USER_ID) REFERENCES AIFORBI_USERS(ID)
+            );
+        END
         ";
 
         conn.Execute(sql);
@@ -513,5 +553,128 @@ public class MssqlConnector
                     WHERE TABLENAME = @tablename AND DATABASENAME = @dbname";
 
         return conn.QueryFirstOrDefault<MssqlSummaryDto>(sql, new { tablename = tablename, dbname = _DatabaseName });
+    }
+
+    public void AddChatHistory(ChatHistoryDto chat)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"
+            INSERT INTO AIFORBI_CHAT_HISTORY (SESSIONID, ROLE, CONTENT, CREATEDAT, ISHTML)
+            VALUES (@SessionId, @Role, @Content, @CreatedAt, @IsHtml)
+        ";
+
+        conn.Execute(sql, chat);
+    }
+
+    public List<ChatHistoryDto> GetChatHistory(string sessionId)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"
+            SELECT ID, SESSIONID, ROLE, CONTENT, CREATEDAT, ISHTML
+            FROM AIFORBI_CHAT_HISTORY
+            WHERE SESSIONID = @SessionId
+            ORDER BY CREATEDAT ASC
+        ";
+
+        return conn.Query<ChatHistoryDto>(sql, new { SessionId = sessionId }).ToList();
+    }
+
+    // ========== USER AUTHENTICATION METHODS ==========
+
+    public UserDto? GetUserByCredentials(string email, string password)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"
+            SELECT ID, EMAIL, PASSWORD_HASH AS PasswordHash, DISPLAY_NAME AS DisplayName, CREATED_AT AS CreatedAt
+            FROM AIFORBI_USERS
+            WHERE EMAIL = @Email AND PASSWORD_HASH = @Password
+        ";
+
+        return conn.QueryFirstOrDefault<UserDto>(sql, new { Email = email, Password = password });
+    }
+
+    public UserDto? GetUserById(int userId)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"
+            SELECT ID, EMAIL, DISPLAY_NAME AS DisplayName, CREATED_AT AS CreatedAt
+            FROM AIFORBI_USERS
+            WHERE ID = @UserId
+        ";
+
+        return conn.QueryFirstOrDefault<UserDto>(sql, new { UserId = userId });
+    }
+
+    // ========== CHAT SESSION METHODS ==========
+
+    public ChatSessionDto CreateChatSession(int userId, string sessionId, string? title = null)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"
+            INSERT INTO AIFORBI_CHAT_SESSIONS (SESSION_ID, USER_ID, TITLE, CREATED_AT)
+            VALUES (@SessionId, @UserId, @Title, GETDATE());
+            
+            SELECT CAST(SCOPE_IDENTITY() as int);
+        ";
+
+        var newId = conn.ExecuteScalar<int>(sql, new { SessionId = sessionId, UserId = userId, Title = title });
+        
+        return new ChatSessionDto
+        {
+            Id = newId,
+            SessionId = sessionId,
+            UserId = userId,
+            Title = title,
+            CreatedAt = DateTime.Now
+        };
+    }
+
+    public List<ChatSessionDto> GetUserChatSessions(int userId)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"
+            SELECT ID, SESSION_ID AS SessionId, USER_ID AS UserId, TITLE, CREATED_AT AS CreatedAt
+            FROM AIFORBI_CHAT_SESSIONS
+            WHERE USER_ID = @UserId
+            ORDER BY CREATED_AT DESC
+        ";
+
+        return conn.Query<ChatSessionDto>(sql, new { UserId = userId }).ToList();
+    }
+
+    public ChatSessionDto? GetChatSessionBySessionId(string sessionId)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"
+            SELECT ID, SESSION_ID AS SessionId, USER_ID AS UserId, TITLE, CREATED_AT AS CreatedAt
+            FROM AIFORBI_CHAT_SESSIONS
+            WHERE SESSION_ID = @SessionId
+        ";
+
+        return conn.QueryFirstOrDefault<ChatSessionDto>(sql, new { SessionId = sessionId });
+    }
+
+    public void UpdateChatSessionTitle(string sessionId, string title)
+    {
+        using var conn = new SqlConnection(_DbConnectionString);
+        conn.Open();
+
+        var sql = @"UPDATE AIFORBI_CHAT_SESSIONS SET TITLE = @Title WHERE SESSION_ID = @SessionId";
+
+        conn.Execute(sql, new { SessionId = sessionId, Title = title });
     }
 } 

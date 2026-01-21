@@ -5,11 +5,13 @@ using AICONNECTOR.Connectors;
 using AIFORBI.Models;
 using AIFORBI.Tools;
 using DBCONNECTOR.Connectors;
+using DBCONNECTOR.Dtos.Mssql;
 using Qdrant.Client.Grpc;
 
 namespace AIFORBI.Services;
 
-public class AiResponse {
+public class AiResponse
+{
     public string SqlDistilOzet { get; set; }
     public string GeneratedSql { get; set; }
     public string Data { get; set; }
@@ -17,13 +19,37 @@ public class AiResponse {
 }
 public class ReportService
 {
-    public OllamaConnector olcon { get; set; }
+    public IConnect ChatClient { get; set; }
+    public IConnect EmbedClient { get; set; }
     public QdrantConnector qdcon { get; set; }
     public MssqlConnector mscon { get; set; }
 
     public ReportService()
     {
-        olcon = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
+        // 1. Initialize Embed Provider (Defaulting to Ollama as per hybrid plan)
+        var embedProvider = AppConfig.Configuration["ConnStrs:AI:EmbedProvider"] ?? "Ollama";
+        if (embedProvider == "Ollama")
+        {
+            EmbedClient = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
+        }
+        else
+        {
+            // Future-proofing: if user wants Gemini/Other for embeddings later
+            EmbedClient = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
+        }
+
+
+        // 2. Initialize Chat Provider
+        var chatProvider = AppConfig.Configuration["ConnStrs:AI:ChatProvider"] ?? "Ollama";
+        if (chatProvider.Equals("Gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            ChatClient = new GeminiConnector(AppConfig.Configuration["ConnStrs:Gemini:ApiKey"], AppConfig.Configuration["ConnStrs:Gemini:Model"]);
+        }
+        else
+        {
+            ChatClient = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
+        }
+
         qdcon = new QdrantConnector(AppConfig.Configuration["ConnStrs:Qdrant:Host"], Convert.ToInt32(AppConfig.Configuration["ConnStrs:Qdrant:Grpc"]), "db_maps");
         mscon = new MssqlConnector(AppConfig.Configuration["ConnStrs:Mssql:ConnStr"], AppConfig.Configuration["ConnStrs:Mssql:DatabaseName"], AppConfig.Configuration["ConnStrs:Mssql:Schema"]);
     }
@@ -35,10 +61,9 @@ public class ReportService
         return string.Join("\n\n",
             ctxs.Select(c => $"### [{c.Schema}].[{c.Table}]\n{c.Summary}"));
     }
-
-    public AiResponse GenerateQuestionSql(AskModel AskQ)
+    public string QdrantOzet(AskModel AskQ)
     {
-        var qVec = olcon.EmbedText(AskQ.Question);
+        var qVec = EmbedClient.EmbedText(AskQ.Question);
 
         // 2) Qdrant: db + table_summary filtre
         var filter = AiConnectorUtil.BuildEqualsFilter(
@@ -74,6 +99,11 @@ public class ReportService
         //var tumOzet = AiConnectorUtil.ToCompactJson(setService.GetDbMapFast().Tables.Select(x => new { x.Table.Name, x.AISummary }).ToList());
 
         var tumOzet = BuildContextText(contexts);
+        return tumOzet;
+    }
+    public AiResponse GenerateQuestionSql(AskModel AskQ, string tumOzet)
+    {
+
         var systemDistil = $"""
             Sen profesyonel bir veritabanı uzmanısın.
             T-SQL üretebilmek için gereken özeti çıkaracaksın.
@@ -99,7 +129,7 @@ public class ReportService
 
             """;
 
-        var sqlDistilOzet = olcon.Chat(systemDistil, userDistil);
+        var sqlDistilOzet = ChatClient.Chat(systemDistil, userDistil);
 
 
         var system = $"""
@@ -128,7 +158,7 @@ public class ReportService
 
             """;
 
-        var sql = olcon.Chat(system, user);
+        var sql = ChatClient.Chat(system, user);
 
         var pureSql = AiConnectorUtil.CleanRawSql(sql);
 
@@ -139,6 +169,34 @@ public class ReportService
 
         return aiNewResponse;
 
+    }
+
+    public string GenerateTextExplanation(AskModel AskQ, string tumOzet)
+    {
+
+        var systemDistil = $"""
+            Sen profesyonel bir veritabanı uzmanısın.
+            Kullanıcının isteğine göre gereken özeti çıkaracaksın.
+            Sana verilecek özette tablo adı, kolonları ve tablonun özetini anlatan bir json veya metin olacak
+            Bu özetleri kullanarak kullanıcının sorusuna uygun açıklama metni yazacaksın
+            Uydurma yapma, istenen soruyu anla ve kullanıcının isteyebileceği açıklama metnini yaz
+            """;
+
+        var userDistil = $"""
+            
+            Sana verilen sorunun dışına çıkma açıklama metni yaz. Sana verilen özetin dışına çıkma
+
+            Sorum (TR): {AskQ.Question}
+
+            Databasedeki ilgili tablolar, tabloların kolonları ve anlatımını içeren json veya metin:
+            {tumOzet}
+
+            """;
+
+        var aciklamaOzet = ChatClient.Chat(systemDistil, userDistil);
+
+
+        return aciklamaOzet;
     }
 
     public string SqlGiveErrorAskAIToCorrent(AskModel AskQ, AiResponse aiResponse)
@@ -170,52 +228,188 @@ public class ReportService
 
             """;
 
-        var sql = olcon.Chat(systemCorrector, userCorrector);
+        var sql = ChatClient.Chat(systemCorrector, userCorrector);
+
+        return AiConnectorUtil.CleanRawSql(sql);
+    }
+    public string DetectionOfUser(AskModel AskQ)
+    {
+        var systemCorrector = $"""
+            Sen profesyonel anlamlandırma uzmanısın.
+            Kullanıcının sorduğu sorudan yalnızca 3 bilgi döneceksin
+            1- Eğer kullanıcı sadece açıklama istediyse "TEXT_ONLY" döneceksin
+            2- Eğer kullanıcı sadece dataları görmek istediyse "TABLE_ONLY" döneceksin
+            3- Eğer kullanıcı grafik istiyorsa "DRAW_GRAPHIC" döneceksin
+            Cevap olarak yalnızca yukarıdaki 3 değerden birini döneceksin. Başka bir şey ekleme.
+            """;
+
+
+        var userCorrector = $"""
+            
+            Kullancının sorduğu soru (TR): {AskQ.Question}
+            
+            Yukardaki bilgilere göre bana kullanıcının isteğini anlamlandır ve sadece 3 değerden birini döndür: "TEXT_ONLY", "TABLE_ONLY", "DRAW_GRAPHIC"
+
+            """;
+
+        var sql = ChatClient.Chat(systemCorrector, userCorrector);
 
         return AiConnectorUtil.CleanRawSql(sql);
     }
 
     public AnswerModel AskQuestion(AskModel AskQ)
     {
+        // SAVE USER QUESTION
+        var sessionId = !string.IsNullOrEmpty(AskQ.SessionId) ? AskQ.SessionId : "default-session";
+
+        try
+        {
+            mscon.AddChatHistory(new ChatHistoryDto
+            {
+                SessionId = sessionId,
+                Role = "user",
+                Content = AskQ.Question,
+                CreatedAt = DateTime.Now,
+                IsHtml = false
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("History save error: " + ex.Message);
+        }
+
         AnswerModel ans = new AnswerModel();
         Stopwatch sw = new Stopwatch();
         sw.Start();
-        var aResponse = GenerateQuestionSql(AskQ);
-
-        var result = PollySyncHelpers.ExecuteWithFallbackAltRetry(
-            primary: () =>
-            {
-                return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
-            },
-            alternative: (lastErr) =>
-            {
-                Console.WriteLine($"Alternative denemesi; önceki hata: {lastErr?.GetType().Name} - {lastErr?.Message}");
-                aResponse.Error = lastErr?.Message;
-                var result = SqlGiveErrorAskAIToCorrent(AskQ, aResponse);
-                aResponse.Error = null;
-                aResponse.GeneratedSql = result;
-                return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
-            },
-            alternativeMaxRetries: 3,
-            onFallback: ex => Console.WriteLine($"Fallback tetiklendi (primary hatası): {ex.Message}"),
-            onAlternativeRetry: (ex, wait, attempt) =>
-                Console.WriteLine($"Alternative retry #{attempt} | {wait.TotalMilliseconds} ms bekleme | Hata: {ex.Message}")
-        );
-
-        aResponse.Data = result;
-
-        if(AskQ.DrawGraphic == true)
+        AiResponse aResponse = null;
+        string tumOzet = "";
+        try
         {
-            ans.GeneratedGraphicHtmlCode = D3jsHtmlDrawer(AskQ, aResponse);
+            AskQ.UserDesireDetection = DetectionOfUser(AskQ);
+            ans.UserDesireDetection = AskQ.UserDesireDetection;
+            tumOzet = QdrantOzet(AskQ);
+        }
+        catch (Exception ex)
+        {
+            aResponse = new AiResponse { Error = ex.Message };
         }
 
-        sw.Stop();
-        ans.Answer = result;
-        ans.ElapsedSeconds = ((int)sw.ElapsedMilliseconds) / 60;
+        if (AskQ.UserDesireDetection == "TEXT_ONLY")
+        {
+            var explanation = GenerateTextExplanation(AskQ, tumOzet);
+            sw.Stop();
+            ans.Answer = explanation;
+            ans.ElapsedSeconds = ((int)sw.ElapsedMilliseconds) / 60;
+            if (ans.ElapsedSeconds == 0) ans.ElapsedSeconds = 1;
+        }
+        else if (AskQ.UserDesireDetection == "TABLE_ONLY")
+        {
+            try
+            {
+                aResponse = GenerateQuestionSql(AskQ, tumOzet);
+                if (aResponse.Error == null)
+                {
+                    var result = PollySyncHelpers.ExecuteWithFallbackAltRetry(
+                        primary: () =>
+                        {
+                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                        },
+                        alternative: (lastErr) =>
+                        {
+                            Console.WriteLine($"Alternative denemesi; önceki hata: {lastErr?.GetType().Name} - {lastErr?.Message}");
+                            aResponse.Error = lastErr?.Message;
+                            var result = SqlGiveErrorAskAIToCorrent(AskQ, aResponse);
+                            aResponse.Error = null;
+                            aResponse.GeneratedSql = result;
+                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                        },
+                        alternativeMaxRetries: 3,
+                        onFallback: ex => Console.WriteLine($"Fallback tetiklendi (primary hatası): {ex.Message}"),
+                        onAlternativeRetry: (ex, wait, attempt) =>
+                        Console.WriteLine($"Alternative retry #{attempt} | {wait.TotalMilliseconds} ms bekleme | Hata: {ex.Message}")
+                    );
+                    aResponse.Data = result;
+                    ans.GeneratedGraphicHtmlCode = ApacheEchartsTableDrawer(AskQ, aResponse);
+                    sw.Stop();
+                    ans.Answer = aResponse.Data;
+                    ans.ElapsedSeconds = ((int)sw.ElapsedMilliseconds) / 60;
+                    if (ans.ElapsedSeconds == 0) ans.ElapsedSeconds = 1;
+                }
+            }
+            catch (Exception ex)
+            {
+                aResponse = new AiResponse { Error = ex.Message };
+            }
+
+        }
+        else if (AskQ.UserDesireDetection == "DRAW_GRAPHIC")
+        {
+            try
+            {
+                aResponse = GenerateQuestionSql(AskQ, tumOzet);
+                if (aResponse.Error == null)
+                {
+                    var result = PollySyncHelpers.ExecuteWithFallbackAltRetry(
+                        primary: () =>
+                        {
+                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                        },
+                        alternative: (lastErr) =>
+                        {
+                            Console.WriteLine($"Alternative denemesi; önceki hata: {lastErr?.GetType().Name} - {lastErr?.Message}");
+                            aResponse.Error = lastErr?.Message;
+                            var result = SqlGiveErrorAskAIToCorrent(AskQ, aResponse);
+                            aResponse.Error = null;
+                            aResponse.GeneratedSql = result;
+                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                        },
+                        alternativeMaxRetries: 3,
+                        onFallback: ex => Console.WriteLine($"Fallback tetiklendi (primary hatası): {ex.Message}"),
+                        onAlternativeRetry: (ex, wait, attempt) =>
+                            Console.WriteLine($"Alternative retry #{attempt} | {wait.TotalMilliseconds} ms bekleme | Hata: {ex.Message}")
+                    );
+                    aResponse.Data = result;
+                    ans.GeneratedGraphicHtmlCode = ApacheEchartsChartDrawer(AskQ, aResponse);
+                    sw.Stop();
+                    ans.Answer = aResponse.Data;
+                    ans.ElapsedSeconds = ((int)sw.ElapsedMilliseconds) / 60;
+                    if (ans.ElapsedSeconds == 0) ans.ElapsedSeconds = 1;
+
+                }
+            }
+            catch (Exception ex)
+            {
+                aResponse = new AiResponse { Error = ex.Message };
+            }
+        }
+        // SAVE ASSISTANT RESPONSE
+        // Check if we have HTML, otherwise use Data or Error message
+        string contentToSave = !string.IsNullOrEmpty(ans.GeneratedGraphicHtmlCode)
+            ? ans.GeneratedGraphicHtmlCode
+            : (!string.IsNullOrEmpty(ans.Answer) ? ans.Answer : (aResponse.Error ?? "No response"));
+
+        bool isHtml = !string.IsNullOrEmpty(ans.GeneratedGraphicHtmlCode);
+
+        try
+        {
+            mscon.AddChatHistory(new ChatHistoryDto
+            {
+                SessionId = sessionId,
+                Role = "assistant",
+                Content = contentToSave,
+                CreatedAt = DateTime.Now,
+                IsHtml = isHtml
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("History save error: " + ex.Message);
+        }
+
         return ans;
     }
 
-    public string D3jsHtmlDrawer(AskModel AskQ, AiResponse aiResponse)
+    public string ApacheEchartsChartDrawer(AskModel AskQ, AiResponse aiResponse)
     {
         var systemProgrammer = $"""
             Sen profesyonel bir yazılımcısın.
@@ -230,7 +424,7 @@ public class ReportService
             Sadece sana verilen datayı kullanacaksın uydurma yapma.
             Kullanıcının özel bir grafik isteği varsa onu yap.
             Kullanıcının özel grafik isteği yoksa kendin yorumla ve grafik mi, tablo mu oluşturulması daha doğru olur karar ver ve ona göre kodu üret.
-            
+            Hiçbir şekilde oluşturulan htmlin javascriptin içine açıklama satırı yorum vebenzeri şeyler ekleme.
             """;
 
         var userDrawer = $"""
@@ -248,7 +442,44 @@ public class ReportService
 
             """;
 
-        var resultOfHtml = olcon.Chat(systemProgrammer, userDrawer);
+        var resultOfHtml = ChatClient.Chat(systemProgrammer, userDrawer);
+
+
+        return resultOfHtml;
+    }
+    public string ApacheEchartsTableDrawer(AskModel AskQ, AiResponse aiResponse)
+    {
+        var systemProgrammer = $"""
+            Sen profesyonel bir yazılımcısın.
+            Sana kullanıcının sorduğu soru verilecek,
+            Bunun sonucunda AI tarafından üretilen özet verilecek
+            Bunun sonucunda AI tarafından üretilen sql sorgusu verilecek
+            Bunun sonucunda ortaya çıkan data json olarak verilecek
+            Sen bu bilgileri kullanarak Apache ECharts ile html'de tablosunu oluşturacaksın.
+            Bana direkt html çıktısı olarak vereceksin.
+            Apache ECharts için CDN kullanacaksın.
+            Başlıklar ve yazılar içeriğe uygun olsun.
+            Sadece sana verilen datayı kullanacaksın uydurma yapma.
+            Sadece tablo oluşturacaksın. Herhangi bir grafik oluşturmayacaksın.
+            Hiçbir şekilde oluşturulan htmlin javascriptin içine açıklama satırı yorum vebenzeri şeyler ekleme.
+            """;
+
+        var userDrawer = $"""
+            
+            Kullanıcının Sorusu:{AskQ.Question}
+
+            AI Database özeti: {aiResponse.SqlDistilOzet}
+
+            AI Sql Sorgusu: {aiResponse.GeneratedSql}
+
+            Bunun sonucunda çıkan data:
+            {aiResponse.Data}
+
+            Kodunu üret, sadece kod çıktısı olacak başka bir şey, yorum v.b. ekleme
+
+            """;
+
+        var resultOfHtml = ChatClient.Chat(systemProgrammer, userDrawer);
 
 
         return resultOfHtml;
