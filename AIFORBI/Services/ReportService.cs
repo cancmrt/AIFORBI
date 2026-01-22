@@ -6,52 +6,59 @@ using AIFORBI.Models;
 using AIFORBI.Tools;
 using DBCONNECTOR.Connectors;
 using DBCONNECTOR.Dtos.Mssql;
+using DBCONNECTOR.Interfaces;
 using Qdrant.Client.Grpc;
 
 namespace AIFORBI.Services;
 
 public class AiResponse
 {
-    public string SqlDistilOzet { get; set; }
-    public string GeneratedSql { get; set; }
-    public string Data { get; set; }
-    public string Error { get; set; }
+    public string? SqlDistilOzet { get; set; }
+    public string? GeneratedSql { get; set; }
+    public string? Data { get; set; }
+    public string? Error { get; set; }
 }
-public class ReportService
+
+public class ReportService : IReportService
 {
-    public IConnect ChatClient { get; set; }
-    public IConnect EmbedClient { get; set; }
-    public QdrantConnector qdcon { get; set; }
-    public MssqlConnector mscon { get; set; }
+    private readonly IChatRepository _chatRepository;
+    private readonly IConnect _chatClient;
+    private readonly IConnect _embedClient;
+    private readonly QdrantConnector _qdcon;
+    private readonly IDbConnector _dbConnector;
+    private readonly SettingsService _settingsService;
 
-    public ReportService()
+    public ReportService(IChatRepository chatRepository, SettingsService settingsService, IDbConnector dbConnector, IConfiguration configuration)
     {
-        // 1. Initialize Embed Provider (Defaulting to Ollama as per hybrid plan)
-        var embedProvider = AppConfig.Configuration["ConnStrs:AI:EmbedProvider"] ?? "Ollama";
-        if (embedProvider == "Ollama")
-        {
-            EmbedClient = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
-        }
-        else
-        {
-            // Future-proofing: if user wants Gemini/Other for embeddings later
-            EmbedClient = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
-        }
+        _chatRepository = chatRepository;
+        _settingsService = settingsService;
+        _dbConnector = dbConnector;
 
+        // Get configuration values with defaults
+        var ollamaBaseUrl = configuration["ConnStrs:Ollama:BaseUrl"] ?? "http://localhost:11434";
+        var geminiApiKey = configuration["ConnStrs:Gemini:ApiKey"] ?? "";
+        var geminiModel = configuration["ConnStrs:Gemini:Model"] ?? "gemini-pro";
+        var qdrantHost = configuration["ConnStrs:Qdrant:Host"] ?? "localhost";
+        var qdrantPort = configuration["ConnStrs:Qdrant:Grpc"] ?? "6334";
+        var mssqlConnStr = configuration["ConnStrs:Mssql:ConnStr"] ?? "";
+        var mssqlDbName = configuration["ConnStrs:Mssql:DatabaseName"] ?? "";
+        var mssqlSchema = configuration["ConnStrs:Mssql:Schema"] ?? "dbo";
+
+        // 1. Initialize Embed Provider (Defaulting to Ollama)
+        _embedClient = new OllamaConnector(ollamaBaseUrl, "nomic-embed-text", "qwen2.5-coder:7b");
 
         // 2. Initialize Chat Provider
-        var chatProvider = AppConfig.Configuration["ConnStrs:AI:ChatProvider"] ?? "Ollama";
+        var chatProvider = configuration["ConnStrs:AI:ChatProvider"] ?? "Ollama";
         if (chatProvider.Equals("Gemini", StringComparison.OrdinalIgnoreCase))
         {
-            ChatClient = new GeminiConnector(AppConfig.Configuration["ConnStrs:Gemini:ApiKey"], AppConfig.Configuration["ConnStrs:Gemini:Model"]);
+            _chatClient = new GeminiConnector(geminiApiKey, geminiModel);
         }
         else
         {
-            ChatClient = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
+            _chatClient = new OllamaConnector(ollamaBaseUrl, "nomic-embed-text", "qwen2.5-coder:7b");
         }
 
-        qdcon = new QdrantConnector(AppConfig.Configuration["ConnStrs:Qdrant:Host"], Convert.ToInt32(AppConfig.Configuration["ConnStrs:Qdrant:Grpc"]), "db_maps");
-        mscon = new MssqlConnector(AppConfig.Configuration["ConnStrs:Mssql:ConnStr"], AppConfig.Configuration["ConnStrs:Mssql:DatabaseName"], AppConfig.Configuration["ConnStrs:Mssql:Schema"]);
+        _qdcon = new QdrantConnector(qdrantHost, Convert.ToInt32(qdrantPort), "db_maps");
     }
     private sealed record TableCtx(string Schema, string Table, string Summary, string Json);
 
@@ -63,18 +70,17 @@ public class ReportService
     }
     public string QdrantOzet(AskModel AskQ)
     {
-        var qVec = EmbedClient.EmbedText(AskQ.Question);
+        var qVec = _embedClient.EmbedText(AskQ.Question);
 
         // 2) Qdrant: db + table_summary filtre
         var filter = AiConnectorUtil.BuildEqualsFilter(
-            ("db", "AdventureWorksDW2022"),
+            ("db", _dbConnector.DatabaseName),
             ("kind", "table_summary")
         );
 
-        SettingsService setService = new SettingsService();
-        int n = setService.GetDbMapFast().Tables.Count;
+        int n = _settingsService.GetDbMapFast().Tables.Count;
         int topK = Math.Clamp((int)Math.Round(Math.Sqrt(n) + 4), 6, 20);
-        var hits = qdcon.Search(qVec, topK, filter: filter);
+        var hits = _qdcon.Search(qVec, topK, filter: filter);
         var contexts = new List<TableCtx>();
         foreach (var h in hits)
         {
@@ -89,7 +95,7 @@ public class ReportService
         //     ("db", "AdventureWorksDW2022"),
         //     ("kind", "db_overview")
         // );
-        // var hitsDbSum = qdcon.Search(qVec, 6, filter: filterDbSum);
+        // var hitsDbSum = _qdcon.Search(qVec, 6, filter: filterDbSum);
         // foreach (var h in hitsDbSum)
         // {
         //     var text = h.Payload.TryGetValue("text", out var txt) && txt.KindCase == Value.KindOneofCase.StringValue ? txt.StringValue : "?";
@@ -129,7 +135,7 @@ public class ReportService
 
             """;
 
-        var sqlDistilOzet = ChatClient.Chat(systemDistil, userDistil);
+        var sqlDistilOzet = _chatClient.Chat(systemDistil, userDistil);
 
 
         var system = $"""
@@ -158,7 +164,7 @@ public class ReportService
 
             """;
 
-        var sql = ChatClient.Chat(system, user);
+        var sql = _chatClient.Chat(system, user);
 
         var pureSql = AiConnectorUtil.CleanRawSql(sql);
 
@@ -193,7 +199,7 @@ public class ReportService
 
             """;
 
-        var aciklamaOzet = ChatClient.Chat(systemDistil, userDistil);
+        var aciklamaOzet = _chatClient.Chat(systemDistil, userDistil);
 
 
         return aciklamaOzet;
@@ -228,7 +234,7 @@ public class ReportService
 
             """;
 
-        var sql = ChatClient.Chat(systemCorrector, userCorrector);
+        var sql = _chatClient.Chat(systemCorrector, userCorrector);
 
         return AiConnectorUtil.CleanRawSql(sql);
     }
@@ -252,7 +258,7 @@ public class ReportService
 
             """;
 
-        var sql = ChatClient.Chat(systemCorrector, userCorrector);
+        var sql = _chatClient.Chat(systemCorrector, userCorrector);
 
         return AiConnectorUtil.CleanRawSql(sql);
     }
@@ -264,7 +270,7 @@ public class ReportService
 
         try
         {
-            mscon.AddChatHistory(new ChatHistoryDto
+            _chatRepository.AddChatHistory(new ChatHistoryDto
             {
                 SessionId = sessionId,
                 Role = "user",
@@ -281,11 +287,13 @@ public class ReportService
         AnswerModel ans = new AnswerModel();
         Stopwatch sw = new Stopwatch();
         sw.Start();
-        AiResponse aResponse = null;
+        AiResponse? aResponse = null;
         string tumOzet = "";
         try
         {
             AskQ.UserDesireDetection = DetectionOfUser(AskQ);
+            if (string.IsNullOrWhiteSpace(AskQ.UserDesireDetection))
+                AskQ.UserDesireDetection = "TEXT_ONLY";
             ans.UserDesireDetection = AskQ.UserDesireDetection;
             tumOzet = QdrantOzet(AskQ);
         }
@@ -309,10 +317,10 @@ public class ReportService
                 aResponse = GenerateQuestionSql(AskQ, tumOzet);
                 if (aResponse.Error == null)
                 {
-                    var result = PollySyncHelpers.ExecuteWithFallbackAltRetry(
+                    var result = PollySyncHelpers.ExecuteWithFallbackAltRetry<string>(
                         primary: () =>
                         {
-                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                            return _dbConnector.ExecuteRawSqlToJson(aResponse.GeneratedSql!);
                         },
                         alternative: (lastErr) =>
                         {
@@ -321,7 +329,7 @@ public class ReportService
                             var result = SqlGiveErrorAskAIToCorrent(AskQ, aResponse);
                             aResponse.Error = null;
                             aResponse.GeneratedSql = result;
-                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                            return _dbConnector.ExecuteRawSqlToJson(aResponse.GeneratedSql!);
                         },
                         alternativeMaxRetries: 3,
                         onFallback: ex => Console.WriteLine($"Fallback tetiklendi (primary hatası): {ex.Message}"),
@@ -349,10 +357,10 @@ public class ReportService
                 aResponse = GenerateQuestionSql(AskQ, tumOzet);
                 if (aResponse.Error == null)
                 {
-                    var result = PollySyncHelpers.ExecuteWithFallbackAltRetry(
+                    var result = PollySyncHelpers.ExecuteWithFallbackAltRetry<string>(
                         primary: () =>
                         {
-                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                            return _dbConnector.ExecuteRawSqlToJson(aResponse.GeneratedSql!);
                         },
                         alternative: (lastErr) =>
                         {
@@ -361,7 +369,7 @@ public class ReportService
                             var result = SqlGiveErrorAskAIToCorrent(AskQ, aResponse);
                             aResponse.Error = null;
                             aResponse.GeneratedSql = result;
-                            return mscon.ExecuteRawSqlToJson(aResponse.GeneratedSql);
+                            return _dbConnector.ExecuteRawSqlToJson(aResponse.GeneratedSql!);
                         },
                         alternativeMaxRetries: 3,
                         onFallback: ex => Console.WriteLine($"Fallback tetiklendi (primary hatası): {ex.Message}"),
@@ -386,13 +394,13 @@ public class ReportService
         // Check if we have HTML, otherwise use Data or Error message
         string contentToSave = !string.IsNullOrEmpty(ans.GeneratedGraphicHtmlCode)
             ? ans.GeneratedGraphicHtmlCode
-            : (!string.IsNullOrEmpty(ans.Answer) ? ans.Answer : (aResponse.Error ?? "No response"));
+            : (!string.IsNullOrEmpty(ans.Answer) ? ans.Answer : (aResponse?.Error ?? "No response"));
 
         bool isHtml = !string.IsNullOrEmpty(ans.GeneratedGraphicHtmlCode);
 
         try
         {
-            mscon.AddChatHistory(new ChatHistoryDto
+            _chatRepository.AddChatHistory(new ChatHistoryDto
             {
                 SessionId = sessionId,
                 Role = "assistant",
@@ -442,7 +450,7 @@ public class ReportService
 
             """;
 
-        var resultOfHtml = ChatClient.Chat(systemProgrammer, userDrawer);
+        var resultOfHtml = _chatClient.Chat(systemProgrammer, userDrawer);
 
 
         return resultOfHtml;
@@ -479,7 +487,7 @@ public class ReportService
 
             """;
 
-        var resultOfHtml = ChatClient.Chat(systemProgrammer, userDrawer);
+        var resultOfHtml = _chatClient.Chat(systemProgrammer, userDrawer);
 
 
         return resultOfHtml;

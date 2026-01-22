@@ -13,11 +13,16 @@ namespace AIFORBI.Controllers;
 [Route("api/[controller]")]
 public class SettingsController : ControllerBase
 {
+    private readonly SettingsService _settingsService;
+
+    public SettingsController(SettingsService settingsService)
+    {
+        _settingsService = settingsService;
+    }
+
     [HttpGet("GetDbSummary")]
     public IActionResult GetAndIndexDbSummary(bool UseForceAI = false)
     {
-        SettingsService setService = new SettingsService();
-        return Ok(setService.SummaryAndIndexDb(UseForceAI));
+        return Ok(_settingsService.SummaryAndIndexDb(UseForceAI));
     }
-    
 }

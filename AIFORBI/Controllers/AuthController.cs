@@ -1,59 +1,70 @@
 using Microsoft.AspNetCore.Mvc;
-using AIFORBI.Services;
+using DBCONNECTOR.Interfaces;
 
-namespace AIFORBI.Controllers
+namespace AIFORBI.Controllers;
+
+[Route("api/[controller]")]
+[ApiController]
+public class AuthController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    public class AuthController : ControllerBase
+    private readonly IUserRepository _userRepository;
+
+    public AuthController(IUserRepository userRepository)
     {
-        [HttpPost("Login")]
-        public IActionResult Login([FromBody] LoginRequest request)
-        {
-            if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
-            {
-                return BadRequest("Email and password are required");
-            }
-
-            var srvR = new ReportService();
-            var user = srvR.mscon.GetUserByCredentials(request.Email, request.Password);
-
-            if (user == null)
-            {
-                return Unauthorized("Invalid email or password");
-            }
-
-            return Ok(new
-            {
-                userId = user.Id,
-                email = user.Email,
-                displayName = user.DisplayName
-            });
-        }
-
-        [HttpGet("Me")]
-        public IActionResult GetCurrentUser(int userId)
-        {
-            var srvR = new ReportService();
-            var user = srvR.mscon.GetUserById(userId);
-
-            if (user == null)
-            {
-                return NotFound("User not found");
-            }
-
-            return Ok(new
-            {
-                userId = user.Id,
-                email = user.Email,
-                displayName = user.DisplayName
-            });
-        }
+        _userRepository = userRepository;
     }
 
-    public class LoginRequest
+    [HttpPost("Login")]
+    public IActionResult Login([FromBody] LoginRequest request)
     {
-        public string? Email { get; set; }
-        public string? Password { get; set; }
+        if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
+        {
+            return BadRequest("Email and password are required");
+        }
+
+        var user = _userRepository.GetByCredentials(request.Email, request.Password);
+
+        if (user == null)
+        {
+            return Unauthorized("Invalid email or password");
+        }
+
+        return Ok(new LoginResponse
+        {
+            UserId = user.Id,
+            Email = user.Email ?? string.Empty,
+            DisplayName = user.DisplayName ?? string.Empty
+        });
     }
+
+    [HttpGet("Me")]
+    public IActionResult GetCurrentUser([FromQuery] int userId)
+    {
+        var user = _userRepository.GetById(userId);
+
+        if (user == null)
+        {
+            return NotFound("User not found");
+        }
+
+        return Ok(new LoginResponse
+        {
+            UserId = user.Id,
+            Email = user.Email ?? string.Empty,
+            DisplayName = user.DisplayName ?? string.Empty
+        });
+    }
+}
+
+public class LoginRequest
+{
+    public string? Email { get; set; }
+    public string? Password { get; set; }
+}
+
+public class LoginResponse
+{
+    public int UserId { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
 }

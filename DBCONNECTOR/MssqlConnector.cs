@@ -2,17 +2,23 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DBCONNECTOR.Dtos.Common;
 using DBCONNECTOR.Dtos.Mssql;
+using DBCONNECTOR.Interfaces;
 using Dapper;
 using Microsoft.Data.SqlClient;
 
 namespace DBCONNECTOR.Connectors;
 
-public class MssqlConnector
+public class MssqlConnector : IDbConnector
 {
     private string _DbConnectionString { get; set; }
     public string _DatabaseName { get; set; }
     public string? _Schema { get; set; }
+
+    // IDbConnector interface properties
+    public string DatabaseName => _DatabaseName;
+    public string? Schema => _Schema;
 
     public MssqlConnector(string DbConnectionString, string DatabaseName, string Schema)
     {
@@ -21,7 +27,7 @@ public class MssqlConnector
         _Schema = Schema;
     }
 
-    public List<MssqlTableDto> GetDbTables(bool includeViews)
+    public List<TableDto> GetDbTables(bool includeViews)
     {
 
         using var conn = new SqlConnection(_DbConnectionString);
@@ -39,12 +45,12 @@ public class MssqlConnector
         {(string.IsNullOrWhiteSpace(_Schema) ? "" : "AND t.TABLE_SCHEMA = @schema")}
         ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME;";
 
-        var list = conn.Query<MssqlTableDto>(
+        var list = conn.Query<TableDto>(
             new CommandDefinition(sql, new { schema = _Schema })).ToList();
 
         return list;
     }
-    public List<MssqlColumnDto> GetDbTableColumns(MssqlTableDto table)
+    public List<ColumnDto> GetDbTableColumns(TableDto table)
     {
 
         using var conn = new SqlConnection(_DbConnectionString);
@@ -164,7 +170,7 @@ public class MssqlConnector
                     AND (@table  IS NULL OR o.name = @table)
                     ORDER BY s.name, o.name, c.column_id;";
 
-        var rows = conn.Query<MssqlColumnDto>(
+        var rows = conn.Query<ColumnDto>(
             new CommandDefinition(
                 sql,
                 new { schema = table.Schema, table = table.Name }
@@ -172,7 +178,7 @@ public class MssqlConnector
 
         return rows;
     }
-    public List<MssqlRelationshipDto> GetDbTableRelations(MssqlTableDto table)
+    public List<RelationshipDto> GetDbTableRelations(TableDto table)
     {
 
         using var conn = new SqlConnection(_DbConnectionString);
@@ -401,17 +407,17 @@ public class MssqlConnector
 
                 ORDER BY Direction, ChildSchema, ChildTable, ForeignKey;";
 
-        var list = conn.Query<MssqlRelationshipDto>(
+        var list = conn.Query<RelationshipDto>(
     new CommandDefinition(sql, new { p_schema = table.Schema, p_table = table.Name })).ToList();
 
         return list;
 
     }
-    public MssqlDatabaseMap GetDbMap()
+    public DatabaseMap GetDbMap()
     {
-        var dbMap = new MssqlDatabaseMap();
+        var dbMap = new DatabaseMap();
         dbMap.DatabaseName = _DatabaseName;
-        dbMap.Tables = new List<MssqlTableMap>();
+        dbMap.Tables = new List<TableMap>();
         var tables = GetDbTables(true);
         if (tables != null && tables.Count > 0)
         {
@@ -420,7 +426,7 @@ public class MssqlConnector
                 var table = tables[i];
                 var tableColumns = GetDbTableColumns(table);
                 var tableRelationships = GetDbTableRelations(table);
-                dbMap.Tables.Add(new MssqlTableMap
+                dbMap.Tables.Add(new TableMap
                 {
                     Table = table,
                     TableColumns = tableColumns,
@@ -525,7 +531,7 @@ public class MssqlConnector
 
     }
 
-    public MssqlSummaryDto AddSummaryToDb(MssqlSummaryDto summary)
+    public SummaryDto AddSummaryToDb(SummaryDto summary)
     {
         using var conn = new SqlConnection(_DbConnectionString);
         conn.Open();
@@ -543,7 +549,7 @@ public class MssqlConnector
 
         return summary;
     }
-    public MssqlSummaryDto GetTableSummary(string tablename)
+    public SummaryDto? GetTableSummary(string tablename)
     {
         using var conn = new SqlConnection(_DbConnectionString);
         conn.Open();
@@ -552,7 +558,7 @@ public class MssqlConnector
                     FROM AIFORBI_DB_SUMMARIES
                     WHERE TABLENAME = @tablename AND DATABASENAME = @dbname";
 
-        return conn.QueryFirstOrDefault<MssqlSummaryDto>(sql, new { tablename = tablename, dbname = _DatabaseName });
+        return conn.QueryFirstOrDefault<SummaryDto>(sql, new { tablename = tablename, dbname = _DatabaseName });
     }
 
     public void AddChatHistory(ChatHistoryDto chat)

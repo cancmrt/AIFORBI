@@ -1,29 +1,36 @@
+using DBCONNECTOR.Dtos.Common;
+using DBCONNECTOR.Interfaces;
 using AICONNECTOR;
 using AICONNECTOR.Connectors;
-using DBCONNECTOR.Connectors;
-using DBCONNECTOR.Dtos.Mssql;
 using Qdrant.Client.Grpc;
+using Microsoft.Extensions.Configuration;
 
 namespace AIFORBI.Services;
 
 public class SettingsService
 {
-    public MssqlConnector mssqlConnector { get; set; }
+    private readonly IDbConnector _dbConnector;
     public OllamaConnector olcon { get; set; }
     public QdrantConnector qdcon { get; set; }
-    public SettingsService()
-    {
-        mssqlConnector = new MssqlConnector(AppConfig.Configuration["ConnStrs:Mssql:ConnStr"], AppConfig.Configuration["ConnStrs:Mssql:DatabaseName"], AppConfig.Configuration["ConnStrs:Mssql:Schema"]);
-        olcon = new OllamaConnector(AppConfig.Configuration["ConnStrs:Ollama:BaseUrl"], "nomic-embed-text", "qwen2.5-coder:7b");
-        qdcon = new QdrantConnector(AppConfig.Configuration["ConnStrs:Qdrant:Host"], Convert.ToInt32(AppConfig.Configuration["ConnStrs:Qdrant:Grpc"]), "db_maps");
 
-    }
-    public MssqlDatabaseMap GetDbMapFast()
+    public SettingsService(IDbConnector dbConnector, IConfiguration configuration)
     {
-        var dbMap = mssqlConnector.GetDbMap();
+        _dbConnector = dbConnector;
+        
+        var ollamaBaseUrl = configuration["ConnStrs:Ollama:BaseUrl"] ?? "http://localhost:11434";
+        var qdrantHost = configuration["ConnStrs:Qdrant:Host"] ?? "localhost";
+        var qdrantPort = configuration["ConnStrs:Qdrant:Grpc"] ?? "6334";
+
+        olcon = new OllamaConnector(ollamaBaseUrl, "nomic-embed-text", "qwen2.5-coder:7b");
+        qdcon = new QdrantConnector(qdrantHost, Convert.ToInt32(qdrantPort), "db_maps");
+    }
+
+    public DatabaseMap GetDbMapFast()
+    {
+        var dbMap = _dbConnector.GetDbMap();
         for (int i = 0; i < dbMap.Tables.Count; i++)
         {
-            var tableSum = mssqlConnector.GetTableSummary(dbMap.Tables[i].Table.Name);
+            var tableSum = _dbConnector.GetTableSummary(dbMap.Tables[i].Table.Name!);
             if (tableSum != null)
             {
                 dbMap.Tables[i].RawJson = tableSum.JSONTXT;
@@ -31,7 +38,7 @@ public class SettingsService
             }
 
         }
-        var dbSum = mssqlConnector.GetTableSummary("_AIFORBIDBSUM_");
+        var dbSum = _dbConnector.GetTableSummary("_AIFORBIDBSUM_");
         if (dbSum != null)
         {
             dbMap.RawJson = dbSum.JSONTXT;
@@ -39,23 +46,23 @@ public class SettingsService
         }
         return dbMap;
     }
-    public MssqlDatabaseMap SummaryAndIndexDb(bool ForceToAISummary = false)
+    public DatabaseMap SummaryAndIndexDb(bool ForceToAISummary = false)
     {
         if (ForceToAISummary == true)
         {
-            mssqlConnector.ResetAppTable();
+            _dbConnector.ResetAppTable();
         }
-        mssqlConnector.CreateAppTables();
-        var dbMap = mssqlConnector.GetDbMap();
+        _dbConnector.CreateAppTables();
+        var dbMap = _dbConnector.GetDbMap();
         for (int i = 0; i < dbMap.Tables.Count; i++)
         {
-            var tableSum = mssqlConnector.GetTableSummary(dbMap.Tables[i].Table.Name);
+            var tableSum = _dbConnector.GetTableSummary(dbMap.Tables[i].Table.Name!);
             if (tableSum == null || ForceToAISummary == true)
             {
                 dbMap.Tables[i].RawJson = AiConnectorUtil.ToCompactJson(dbMap.Tables[i]);
 
                 var system = """
-                    Sen bir veri modeli analistisın. Aşağıdaki JSON, MSSQL'de bir veritabanındaki TEK bir tablonun
+                    Sen bir veri modeli analistisın. Aşağıdaki JSON, bir veritabanındaki TEK bir tablonun
                     kolon ve ilişki bilgilerini içerir (table, tableColumns, tableRelationships).
 
                     Kurallar:
@@ -70,8 +77,8 @@ public class SettingsService
 
 
                 var user = $"""
-                    Veritabanı: {mssqlConnector._DatabaseName}
-                    Hedef tablo: [{mssqlConnector._Schema}].[{dbMap.Tables[i].Table.Name}]
+                    Veritabanı: {_dbConnector.DatabaseName}
+                    Hedef tablo: [{_dbConnector.Schema}].[{dbMap.Tables[i].Table.Name}]
 
                     JSON:
                     ```json
@@ -95,9 +102,9 @@ public class SettingsService
                     answer = answer.Trim();
 
                 dbMap.Tables[i].AISummary = answer;
-                mssqlConnector.AddSummaryToDb(new MssqlSummaryDto
+                _dbConnector.AddSummaryToDb(new SummaryDto
                 {
-                    DATABASENAME = mssqlConnector._DatabaseName,
+                    DATABASENAME = _dbConnector.DatabaseName,
                     TABLENAME = dbMap.Tables[i].Table.Name,
                     JSONTXT = dbMap.Tables[i].RawJson,
                     AISUMTXT = dbMap.Tables[i].AISummary
@@ -110,7 +117,7 @@ public class SettingsService
             }
 
         }
-        var dbSum = mssqlConnector.GetTableSummary("_AIFORBIDBSUM_");
+        var dbSum = _dbConnector.GetTableSummary("_AIFORBIDBSUM_");
         if (dbSum == null || ForceToAISummary == true)
         {
             dbMap.RawJson = AiConnectorUtil.ToCompactJson(dbMap.Tables);
@@ -133,7 +140,7 @@ public class SettingsService
                 """;
 
             var user = $"""
-                Veritabanı ismi: {mssqlConnector._DatabaseName}
+                Veritabanı ismi: {_dbConnector.DatabaseName}
 
                 Veritabanı tabloları, tabloların kolonları, ilişkileri ve tabloyu anlatan tüm kısa özet:
                 ```özetler
@@ -148,9 +155,9 @@ public class SettingsService
                 answer = answer.Trim();
 
             dbMap.AISummary = answer;
-            mssqlConnector.AddSummaryToDb(new MssqlSummaryDto
+            _dbConnector.AddSummaryToDb(new SummaryDto
             {
-                DATABASENAME = mssqlConnector._DatabaseName,
+                DATABASENAME = _dbConnector.DatabaseName,
                 TABLENAME = "_AIFORBIDBSUM_",
                 JSONTXT = dbMap.RawJson,
                 AISUMTXT = dbMap.AISummary
@@ -165,7 +172,8 @@ public class SettingsService
 
         for (var i = 0; i < dbMap.Tables.Count; i++)
         {
-            var vecL = olcon.EmbedText(dbMap.Tables[i].AISummary);
+            var summary = dbMap.Tables[i].AISummary ?? "";
+            var vecL = olcon.EmbedText(summary);
             qdcon.CreateCollection(vectorSize: vecL.Length, distance: Distance.Cosine);
             var payloadL = new Dictionary<string, object?>
             {
@@ -173,7 +181,7 @@ public class SettingsService
                 ["db"] = dbMap.DatabaseName,
                 ["schema"] = dbMap.Tables[i].Table.Schema,
                 ["table"] = dbMap.Tables[i].Table.Name,
-                ["text"] = dbMap.Tables[i].AISummary,
+                ["text"] = summary,
                 ["json"] = dbMap.Tables[i].RawJson,              // null ise QdrantConnector zaten eklemiyor
                 ["column_count"] = dbMap.Tables[i].TableColumns.Count,
                 ["relation_count"] = dbMap.Tables[i].TableRelationships.Count,
@@ -184,14 +192,15 @@ public class SettingsService
             qdcon.Upsert(vecL, payloadL, idL);
         }
 
-        var vec = olcon.EmbedText(dbMap.AISummary);
+        var dbSummary = dbMap.AISummary ?? "";
+        var vec = olcon.EmbedText(dbSummary);
         qdcon.CreateCollection(vectorSize: vec.Length, distance: Distance.Cosine);
 
         var payload = new Dictionary<string, object?>
         {
             ["kind"] = "db_overview",
             ["db"] = dbMap.DatabaseName,
-            ["text"] = dbMap.AISummary,
+            ["text"] = dbSummary,
             ["all_table_json"] = dbMap.RawJson,
             ["updated_at"] = DateTime.UtcNow.ToString("o")
         };
