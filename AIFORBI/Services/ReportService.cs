@@ -40,9 +40,7 @@ public class ReportService : IReportService
         var geminiModel = configuration["ConnStrs:Gemini:Model"] ?? "gemini-pro";
         var qdrantHost = configuration["ConnStrs:Qdrant:Host"] ?? "localhost";
         var qdrantPort = configuration["ConnStrs:Qdrant:Grpc"] ?? "6334";
-        var mssqlConnStr = configuration["ConnStrs:Mssql:ConnStr"] ?? "";
-        var mssqlDbName = configuration["ConnStrs:Mssql:DatabaseName"] ?? "";
-        var mssqlSchema = configuration["ConnStrs:Mssql:Schema"] ?? "dbo";
+
 
         // 1. Initialize Embed Provider (Defaulting to Ollama)
         _embedClient = new OllamaConnector(ollamaBaseUrl, "nomic-embed-text", "qwen2.5-coder:7b");
@@ -122,6 +120,7 @@ public class ReportService : IReportService
             T-SQL özetinin içinde bulunmayacak.
             Gereken tablolar ve bunların kolonları olacak.
             Bu tablolar ve kolonları uydurma, dikkatle kontrol et yanlış olmasın.
+            Tablo adları kolon adları kesinlikle doğru olmalı iyice kontrol et.
             """;
 
         var userDistil = $"""
@@ -150,6 +149,7 @@ public class ReportService : IReportService
             - INSERT/UPDATE/DELETE/CREATE KESİNLİKLE YASAK
             - Uygunsa WITH CTE kullanabilirsin. DML/DDL (INSERT/UPDATE/DELETE/CREATE) YASAK.
             - Belirtilen özet kapsamında kullanıcının sorusunun sadece SELECT sqlini yazacaksın.
+            - Tablo adları kolon adları kesinlikle doğru olmalı iyice kontrol et.
             """;
 
 
