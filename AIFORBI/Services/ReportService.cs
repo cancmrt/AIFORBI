@@ -121,6 +121,7 @@ public class ReportService : IReportService
             Gereken tablolar ve bunların kolonları olacak.
             Bu tablolar ve kolonları uydurma, dikkatle kontrol et yanlış olmasın.
             Tablo adları kolon adları kesinlikle doğru olmalı iyice kontrol et.
+            Tabloların adları : {_settingsService.GetDbMapFast().Tables.Select(x => x.Table.Name).Aggregate((a, b) => a + ", " + b)}
             """;
 
         var userDistil = $"""
@@ -150,6 +151,7 @@ public class ReportService : IReportService
             - Uygunsa WITH CTE kullanabilirsin. DML/DDL (INSERT/UPDATE/DELETE/CREATE) YASAK.
             - Belirtilen özet kapsamında kullanıcının sorusunun sadece SELECT sqlini yazacaksın.
             - Tablo adları kolon adları kesinlikle doğru olmalı iyice kontrol et.
+            - Tabloların adları : {_settingsService.GetDbMapFast().Tables.Select(x => x.Table.Name).Aggregate((a, b) => a + ", " + b)}
             """;
 
 
