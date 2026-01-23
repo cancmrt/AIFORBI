@@ -183,11 +183,12 @@ public class ReportService : IReportService
     {
 
         var systemDistil = $"""
-            Sen profesyonel bir veritabanı uzmanısın.
+            Sen profesyonel bir veritabanı uzmanısın ve profesyonel analistsin
             Kullanıcının isteğine göre gereken özeti çıkaracaksın.
             Sana verilecek özette tablo adı, kolonları ve tablonun özetini anlatan bir json veya metin olacak
             Bu özetleri kullanarak kullanıcının sorusuna uygun açıklama metni yazacaksın
             Uydurma yapma, istenen soruyu anla ve kullanıcının isteyebileceği açıklama metnini yaz
+            Tabloların adları : {_settingsService.GetDbMapFast().Tables.Select(x => x.Table.Name).Aggregate((a, b) => a + ", " + b)}
             """;
 
         var userDistil = $"""
@@ -244,8 +245,9 @@ public class ReportService : IReportService
     {
         var systemCorrector = $"""
             Sen profesyonel anlamlandırma uzmanısın.
+            Çok iyi düşün ve kullanıcının isteğini anlamlandır. Kullanıcı cevap olarak ne istiyor dikkatle analiz et.
             Kullanıcının sorduğu sorudan yalnızca 3 bilgi döneceksin
-            1- Eğer kullanıcı sadece açıklama istediyse "TEXT_ONLY" döneceksin
+            1- Eğer kullanıcı sadece açıklama istediyse, soru soruyorsa ve cevabı metin olacaksa "TEXT_ONLY" döneceksin
             2- Eğer kullanıcı sadece dataları görmek istediyse "TABLE_ONLY" döneceksin
             3- Eğer kullanıcı grafik istiyorsa "DRAW_GRAPHIC" döneceksin
             Cevap olarak yalnızca yukarıdaki 3 değerden birini döneceksin. Başka bir şey ekleme.
