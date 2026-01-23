@@ -6,6 +6,8 @@ AIFORBI, **MSSQL veritabanınıza doğrudan bağlanarak** tablo ilişkilerini, k
 AIFORBI ile SQL sorguları yazmakla vakit kaybetmezsiniz.
 Yalnızca neye ihtiyacınız olduğunu **doğal dilde söylersiniz**, sistem sizin yerinize veriyi bulur, analiz eder ve görselleştirir.
 
+Çalışılan veritabanını AIFORBI->db-backup klassörünün altında bulabiliriniz
+
 ---
 
 ## 🔥 Temel Özellikler
@@ -152,6 +154,8 @@ AIFORBI is an **AI-powered Business Intelligence (BI) reporting and data analysi
 
 With AIFORBI, you don’t waste time writing SQL queries.
 You simply describe **what you need in natural language**, and the system finds, analyzes, and visualizes the data on your behalf.
+
+You can find working database inside in AIFORBI->db-backup folder.
 
 ---
 
