@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace AICONNECTOR.Connectors;
 
@@ -15,12 +16,14 @@ public class GeminiConnector : IConnect
 
     private string _ApiKey { get; set; }
     private string _Model { get; set; }
+    private IEnumerable<string> _FallbackModels { get; set; }
     private HttpClient _HttpClient { get; set; }
 
-    public GeminiConnector(string apiKey, string model = "gemini-pro")
+    public GeminiConnector(string apiKey, string model = "gemini-pro", IEnumerable<string>? fallbackModels = null)
     {
         _ApiKey = apiKey;
         _Model = model;
+        _FallbackModels = fallbackModels ?? new List<string>();
         _HttpClient = new HttpClient();
     }
 
@@ -33,57 +36,81 @@ public class GeminiConnector : IConnect
 
     public string Chat(string systemPrompt, string userPrompt, object? extraParams = null)
     {
-        // Gemini API Endpoint
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_Model}:generateContent?key={_ApiKey}";
-
-        // Construct Gemini Request Body
-        // Gemini doesn't strictly distinguish "System" role in the same way as OpenAI/Ollama in the v1beta payload structure 
-        // effectively, but we can prepend it to the user message or use the new 'systemInstruction' (available in some models)
-        // For broad compatibility, we will merge system prompt or treat it as the first part of the conversation.
+        // Define model hierarchy: Primary (configured) -> Fallbacks
+        var models = new List<string> { _Model };
         
-        // Simple structure: contents with parts.
-        var payload = new 
+        foreach (var fb in _FallbackModels)
         {
-            contents = new[] 
+            if (!models.Contains(fb, StringComparer.OrdinalIgnoreCase))
             {
-                new {
-                    role = "user",
-                    parts = new[] {
-                        new { text = systemPrompt + "\n\n" + userPrompt } 
+                models.Add(fb);
+            }
+        }
+
+        Exception? lastException = null;
+
+        foreach (var model in models)
+        {
+            try
+            {
+                // Gemini API Endpoint
+                var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={_ApiKey}";
+
+                // Construct Gemini Request Body
+                var payload = new
+                {
+                    contents = new[]
+                    {
+                        new {
+                            role = "user",
+                            parts = new[] {
+                                new { text = systemPrompt + "\n\n" + userPrompt }
+                            }
+                        }
+                    }
+                };
+
+                var jsonContent = new StringContent(JsonSerializer.Serialize(payload, _json), Encoding.UTF8, "application/json");
+
+                var p = _HttpClient.PostAsync(url, jsonContent).ConfigureAwait(false).GetAwaiter().GetResult();
+
+                var raw = p.Content.ReadAsStringAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+
+                if (!p.IsSuccessStatusCode)
+                {
+                    throw new Exception($"Gemini API Error ({p.StatusCode}) with model {model}: {raw}");
+                }
+
+                using var doc = JsonDocument.Parse(raw);
+                var root = doc.RootElement;
+
+                // Response format: candidates[0].content.parts[0].text
+                if (root.TryGetProperty("candidates", out var candidates)
+                    && candidates.ValueKind == JsonValueKind.Array
+                    && candidates.GetArrayLength() > 0)
+                {
+                    var firstCand = candidates[0];
+                    if (firstCand.TryGetProperty("content", out var content)
+                        && content.TryGetProperty("parts", out var parts)
+                        && parts.ValueKind == JsonValueKind.Array
+                        && parts.GetArrayLength() > 0)
+                    {
+                        return parts[0].GetProperty("text").GetString() ?? "";
                     }
                 }
+                
+                // If success but no text, technically a success from API but empty response. 
+                // We return empty string or could try next model. usage implies we accept it.
+                return "";
             }
-        };
-
-        var jsonContent = new StringContent(JsonSerializer.Serialize(payload, _json), Encoding.UTF8, "application/json");
-
-        var p = _HttpClient.PostAsync(url, jsonContent).ConfigureAwait(false).GetAwaiter().GetResult();
-        
-        var raw = p.Content.ReadAsStringAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-        
-        if (!p.IsSuccessStatusCode)
-        {
-             throw new Exception($"Gemini API Error ({p.StatusCode}): {raw}");
+            catch (Exception ex)
+            {
+                lastException = ex;
+                // Try next model
+                continue;
+            }
         }
 
-        using var doc = JsonDocument.Parse(raw);
-        var root = doc.RootElement;
-        
-        // Response format: candidates[0].content.parts[0].text
-        if (root.TryGetProperty("candidates", out var candidates) 
-            && candidates.ValueKind == JsonValueKind.Array
-            && candidates.GetArrayLength() > 0)
-        {
-             var firstCand = candidates[0];
-             if (firstCand.TryGetProperty("content", out var content) 
-                 && content.TryGetProperty("parts", out var parts) 
-                 && parts.ValueKind == JsonValueKind.Array 
-                 && parts.GetArrayLength() > 0)
-             {
-                 return parts[0].GetProperty("text").GetString() ?? "";
-             }
-        }
-
-        return "";
+        throw lastException ?? new Exception("All Gemini models failed.");
     }
 }

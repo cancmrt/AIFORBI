@@ -37,7 +37,8 @@ public class ReportService : IReportService
         // Get configuration values with defaults
         var ollamaBaseUrl = configuration["ConnStrs:Ollama:BaseUrl"] ?? "http://localhost:11434";
         var geminiApiKey = configuration["ConnStrs:Gemini:ApiKey"] ?? "";
-        var geminiModel = configuration["ConnStrs:Gemini:Model"] ?? "gemini-pro";
+        var geminiModel = configuration["ConnStrs:Gemini:Model"] ?? "gemini-3-flash-preview";
+        var geminiFallbackModels = configuration.GetSection("ConnStrs:Gemini:FallbackModels").Get<List<string>>();
         var qdrantHost = configuration["ConnStrs:Qdrant:Host"] ?? "localhost";
         var qdrantPort = configuration["ConnStrs:Qdrant:Grpc"] ?? "6334";
 
@@ -49,7 +50,7 @@ public class ReportService : IReportService
         var chatProvider = configuration["ConnStrs:AI:ChatProvider"] ?? "Ollama";
         if (chatProvider.Equals("Gemini", StringComparison.OrdinalIgnoreCase))
         {
-            _chatClient = new GeminiConnector(geminiApiKey, geminiModel);
+            _chatClient = new GeminiConnector(geminiApiKey, geminiModel, geminiFallbackModels);
         }
         else
         {
