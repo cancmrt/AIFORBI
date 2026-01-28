@@ -36,6 +36,8 @@ public class ReportService : IReportService
 
         // Get configuration values with defaults
         var ollamaBaseUrl = configuration["ConnStrs:Ollama:BaseUrl"] ?? "http://localhost:11434";
+        var ollamaChatModel = configuration["ConnStrs:Ollama:ChatModel"] ?? "qwen2.5-coder:7b";
+        var ollamaEmbedModel = configuration["ConnStrs:Ollama:EmbedModel"] ?? "nomic-embed-text";
         var geminiApiKey = configuration["ConnStrs:Gemini:ApiKey"] ?? "";
         var geminiModel = configuration["ConnStrs:Gemini:Model"] ?? "gemini-3-flash-preview";
         var geminiFallbackModels = configuration.GetSection("ConnStrs:Gemini:FallbackModels").Get<List<string>>();
@@ -44,7 +46,7 @@ public class ReportService : IReportService
 
 
         // 1. Initialize Embed Provider (Defaulting to Ollama)
-        _embedClient = new OllamaConnector(ollamaBaseUrl, "nomic-embed-text", "qwen2.5-coder:7b");
+        _embedClient = new OllamaConnector(ollamaBaseUrl, ollamaEmbedModel, ollamaChatModel);
 
         // 2. Initialize Chat Provider
         var chatProvider = configuration["ConnStrs:AI:ChatProvider"] ?? "Ollama";
@@ -54,7 +56,7 @@ public class ReportService : IReportService
         }
         else
         {
-            _chatClient = new OllamaConnector(ollamaBaseUrl, "nomic-embed-text", "qwen2.5-coder:7b");
+            _chatClient = new OllamaConnector(ollamaBaseUrl, ollamaEmbedModel, ollamaChatModel);
         }
 
         _qdcon = new QdrantConnector(qdrantHost, Convert.ToInt32(qdrantPort), "db_maps");

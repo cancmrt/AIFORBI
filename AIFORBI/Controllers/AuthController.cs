@@ -33,7 +33,8 @@ public class AuthController : ControllerBase
         {
             UserId = user.Id,
             Email = user.Email ?? string.Empty,
-            DisplayName = user.DisplayName ?? string.Empty
+            DisplayName = user.DisplayName ?? string.Empty,
+            Role = user.UserRole
         });
     }
 
@@ -51,7 +52,8 @@ public class AuthController : ControllerBase
         {
             UserId = user.Id,
             Email = user.Email ?? string.Empty,
-            DisplayName = user.DisplayName ?? string.Empty
+            DisplayName = user.DisplayName ?? string.Empty,
+            Role = user.UserRole
         });
     }
 }
@@ -67,4 +69,5 @@ public class LoginResponse
     public int UserId { get; set; }
     public string Email { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public string Role { get; set; } = "user";
 }

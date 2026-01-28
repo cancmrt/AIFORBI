@@ -3,7 +3,7 @@ import { User, Lock, LogIn, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface LoginPageProps {
-    onLogin: (userId: number, email: string, displayName: string) => void;
+    onLogin: (userId: number, email: string, displayName: string, role: string) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -30,7 +30,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             }
 
             const data = await response.json();
-            onLogin(data.userId, data.email, data.displayName);
+            onLogin(data.userId, data.email, data.displayName, data.role || 'user');
         } catch (err: any) {
             setError(err.message || 'Invalid email or password');
         } finally {

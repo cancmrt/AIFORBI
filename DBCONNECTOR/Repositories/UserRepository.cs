@@ -24,7 +24,7 @@ public class UserRepository : IUserRepository
         conn.Open();
 
         const string sql = @"
-            SELECT ID, EMAIL, PASSWORD_HASH AS PasswordHash, DISPLAY_NAME AS DisplayName, CREATED_AT AS CreatedAt
+            SELECT ID, EMAIL, PASSWORD_HASH AS PasswordHash, DISPLAY_NAME AS DisplayName, USER_ROLE AS UserRole, CREATED_AT AS CreatedAt
             FROM AIFORBI_USERS
             WHERE EMAIL = @Email AND PASSWORD_HASH = @Password";
 
@@ -37,7 +37,7 @@ public class UserRepository : IUserRepository
         conn.Open();
 
         const string sql = @"
-            SELECT ID, EMAIL, DISPLAY_NAME AS DisplayName, CREATED_AT AS CreatedAt
+            SELECT ID, EMAIL, DISPLAY_NAME AS DisplayName, USER_ROLE AS UserRole, CREATED_AT AS CreatedAt
             FROM AIFORBI_USERS
             WHERE ID = @UserId";
 

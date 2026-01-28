@@ -5,3 +5,10 @@ export interface Message {
     isHtml?: boolean;
     isLoading?: boolean;
 }
+
+export interface User {
+    userId: number;
+    email: string;
+    displayName: string;
+    role: 'admin' | 'user';
+}

@@ -4,7 +4,8 @@ import { Header } from './components/Header';
 import { MessageList } from './components/MessageList';
 import { InputArea } from './components/InputArea';
 import { LoginPage } from './components/LoginPage';
-import type { Message } from './types';
+import { SettingsPage } from './components/SettingsPage';
+import type { Message, User } from './types';
 
 interface ChatSession {
   id: number;
@@ -13,18 +14,14 @@ interface ChatSession {
   createdAt: string;
 }
 
-interface User {
-  userId: number;
-  email: string;
-  displayName: string;
-}
-
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(true);
 
   // Check for existing user on mount
   useEffect(() => {
@@ -35,12 +32,28 @@ function App() {
     }
   }, []);
 
-  // Fetch sessions when user logs in
+  // Check if app is configured on user login
   useEffect(() => {
     if (user) {
+      checkConfiguration();
       fetchSessions();
     }
   }, [user]);
+
+  const checkConfiguration = async () => {
+    try {
+      const res = await fetch('/api/Settings/IsConfigured');
+      if (res.ok) {
+        const data = await res.json();
+        setIsConfigured(data.isConfigured);
+        if (!data.isConfigured && user?.role === 'admin') {
+          setShowSettings(true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check configuration', err);
+    }
+  };
 
   // Fetch history when session changes
   useEffect(() => {
@@ -89,8 +102,8 @@ function App() {
     }
   };
 
-  const handleLogin = (userId: number, email: string, displayName: string) => {
-    const userData = { userId, email, displayName };
+  const handleLogin = (userId: number, email: string, displayName: string, role: string) => {
+    const userData = { userId, email, displayName, role: role as 'admin' | 'user' };
     setUser(userData);
     localStorage.setItem('aiforbi_user', JSON.stringify(userData));
   };
@@ -245,6 +258,24 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  // Show settings page if user is viewing settings or app is not configured for admin
+  if (showSettings && user.role === 'admin') {
+    return (
+      <div>
+        <div className="p-4 bg-zinc-900 border-b border-zinc-800 flex justify-between items-center">
+          <h1 className="text-lg font-semibold text-zinc-100">AIFORBI</h1>
+          <button
+            onClick={() => setShowSettings(false)}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-lg transition"
+          >
+            Back to Chat
+          </button>
+        </div>
+        <SettingsPage user={user} />
+      </div>
+    );
+  }
+
   return (
     <ChatLayout
       sessions={sessions}
@@ -253,6 +284,8 @@ function App() {
       onNewChat={handleNewChat}
       onLogout={handleLogout}
       userDisplayName={user.displayName}
+      userRole={user.role}
+      onShowSettings={() => setShowSettings(true)}
     >
       <Header />
       <div className="flex-1 flex flex-col relative overflow-hidden">

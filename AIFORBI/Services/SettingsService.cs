@@ -4,24 +4,31 @@ using AICONNECTOR;
 using AICONNECTOR.Connectors;
 using Qdrant.Client.Grpc;
 using Microsoft.Extensions.Configuration;
+using AIFORBI.Models;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AIFORBI.Services;
 
 public class SettingsService
 {
     private readonly IDbConnector _dbConnector;
+    private readonly IConfiguration _configuration;
     public OllamaConnector olcon { get; set; }
     public QdrantConnector qdcon { get; set; }
 
     public SettingsService(IDbConnector dbConnector, IConfiguration configuration)
     {
         _dbConnector = dbConnector;
+        _configuration = configuration;
         
         var ollamaBaseUrl = configuration["ConnStrs:Ollama:BaseUrl"] ?? "http://localhost:11434";
+        var ollamaChatModel = configuration["ConnStrs:Ollama:ChatModel"] ?? "qwen2.5-coder:7b";
+        var ollamaEmbedModel = configuration["ConnStrs:Ollama:EmbedModel"] ?? "nomic-embed-text";
         var qdrantHost = configuration["ConnStrs:Qdrant:Host"] ?? "localhost";
         var qdrantPort = configuration["ConnStrs:Qdrant:Grpc"] ?? "6334";
 
-        olcon = new OllamaConnector(ollamaBaseUrl, "nomic-embed-text", "qwen2.5-coder:7b");
+        olcon = new OllamaConnector(ollamaBaseUrl, ollamaEmbedModel, ollamaChatModel);
         qdcon = new QdrantConnector(qdrantHost, Convert.ToInt32(qdrantPort), "db_maps");
     }
 
@@ -209,6 +216,140 @@ public class SettingsService
         qdcon.Upsert(vec, payload, id);
 
         return dbMap;
+    }
+
+    public SettingsDto GetSettings()
+    {
+        var settings = new SettingsDto
+        {
+            ConnStrs = new ConnStrsDto
+            {
+                DbConnector = new DbConnectorSettings
+                {
+                    Type = _configuration["ConnStrs:DbConnector:Type"] ?? "Mssql",
+                    Mssql = new MssqlSettings
+                    {
+                        ConnStr = _configuration["ConnStrs:DbConnector:Mssql:ConnStr"] ?? "",
+                        DatabaseName = _configuration["ConnStrs:DbConnector:Mssql:DatabaseName"] ?? "",
+                        Schema = _configuration["ConnStrs:DbConnector:Mssql:Schema"] ?? "dbo"
+                    }
+                },
+                Ollama = new OllamaSettings
+                {
+                    BaseUrl = _configuration["ConnStrs:Ollama:BaseUrl"] ?? "",
+                    ChatModel = _configuration["ConnStrs:Ollama:ChatModel"] ?? "",
+                    EmbedModel = _configuration["ConnStrs:Ollama:EmbedModel"] ?? ""
+                },
+                Qdrant = new QdrantSettings
+                {
+                    Host = _configuration["ConnStrs:Qdrant:Host"] ?? "",
+                    Grpc = _configuration["ConnStrs:Qdrant:Grpc"] ?? ""
+                },
+                AI = new AISettings
+                {
+                    ChatProvider = _configuration["ConnStrs:AI:ChatProvider"] ?? "",
+                    EmbedProvider = _configuration["ConnStrs:AI:EmbedProvider"] ?? ""
+                },
+                Gemini = new GeminiSettings
+                {
+                    ApiKey = _configuration["ConnStrs:Gemini:ApiKey"] ?? "",
+                    Model = _configuration["ConnStrs:Gemini:Model"] ?? "",
+                    FallbackModels = _configuration.GetSection("ConnStrs:Gemini:FallbackModels").Get<List<string>>() ?? new List<string>()
+                }
+            },
+            Logging = new LoggingDto
+            {
+                LogLevel = new LogLevelDto
+                {
+                    Default = _configuration["Logging:LogLevel:Default"] ?? "Information",
+                    MicrosoftAspNetCore = _configuration["Logging:LogLevel:Microsoft.AspNetCore"] ?? "Warning"
+                }
+            },
+            AllowedHosts = _configuration["AllowedHosts"] ?? "*"
+        };
+
+        return settings;
+    }
+
+    public bool UpdateSettings(SettingsDto settings)
+    {
+        try
+        {
+            var appSettingsPath = Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json");
+            
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            // Create the JSON structure manually to match appsettings.json format
+            var settingsObject = new
+            {
+                ConnStrs = new
+                {
+                    DbConnector = new
+                    {
+                        Type = settings.ConnStrs.DbConnector.Type,
+                        Mssql = new
+                        {
+                            ConnStr = settings.ConnStrs.DbConnector.Mssql.ConnStr,
+                            DatabaseName = settings.ConnStrs.DbConnector.Mssql.DatabaseName,
+                            Schema = settings.ConnStrs.DbConnector.Mssql.Schema
+                        }
+                    },
+                    Ollama = new
+                    {
+                        BaseUrl = settings.ConnStrs.Ollama.BaseUrl,
+                        ChatModel = settings.ConnStrs.Ollama.ChatModel,
+                        EmbedModel = settings.ConnStrs.Ollama.EmbedModel
+                    },
+                    Qdrant = new
+                    {
+                        Host = settings.ConnStrs.Qdrant.Host,
+                        Grpc = settings.ConnStrs.Qdrant.Grpc
+                    },
+                    AI = new
+                    {
+                        ChatProvider = settings.ConnStrs.AI.ChatProvider,
+                        EmbedProvider = settings.ConnStrs.AI.EmbedProvider
+                    },
+                    Gemini = new
+                    {
+                        ApiKey = settings.ConnStrs.Gemini.ApiKey,
+                        Model = settings.ConnStrs.Gemini.Model,
+                        FallbackModels = settings.ConnStrs.Gemini.FallbackModels
+                    }
+                },
+                Logging = new
+                {
+                    LogLevel = new Dictionary<string, string>
+                    {
+                        ["Default"] = settings.Logging.LogLevel.Default,
+                        ["Microsoft.AspNetCore"] = settings.Logging.LogLevel.MicrosoftAspNetCore
+                    }
+                },
+                AllowedHosts = settings.AllowedHosts
+            };
+
+            var jsonString = JsonSerializer.Serialize(settingsObject, jsonOptions);
+            File.WriteAllText(appSettingsPath, jsonString);
+            
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public bool IsConfigured()
+    {
+        var connStr = _configuration["ConnStrs:DbConnector:Mssql:ConnStr"];
+        var dbName = _configuration["ConnStrs:DbConnector:Mssql:DatabaseName"];
+        
+        return !string.IsNullOrEmpty(connStr) && !string.IsNullOrEmpty(dbName);
     }
 
 }
