@@ -108,9 +108,10 @@ CREATE TABLE AIFORBI_CHATS (
     },
     "Gemini": {
       "ApiKey": "YOUR_GEMINI_API_KEY",
-      "Model": "gemini-2.0-flash-exp",
+      "Model": "gemini-3-flash-preview",
       "FallbackModels": [
         "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
         "gemini-2.0-flash"
       ]
     }
@@ -303,9 +304,10 @@ ollama pull nomic-embed-text
 ### AI Model Seçenekleri
 
 **Gemini Modeller:**
-- `gemini-2.0-flash-exp` (Hızlı, önerilen)
-- `gemini-2.5-flash` (Yeni, daha güçlü)
-- `gemini-pro` (Daha detaylı)
+- `gemini-3-flash-preview` (Deneysel, en yeni özellikler)
+- `gemini-2.5-flash` (Hızlı ve güçlü, önerilen)
+- `gemini-2.5-flash-lite` (Hafif ve hızlı)
+- `gemini-2.0-flash` (Kararlı sürüm)
 
 **Ollama Modeller:**
 - `qwen2.5-coder:7b` (Kod ve SQL için optimize)
